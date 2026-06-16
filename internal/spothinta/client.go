@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -38,11 +39,16 @@ type Params struct {
 type Client struct {
 	baseURL string
 	http    *http.Client
+	log     *slog.Logger
 }
 
-// New returns a client targeting the public spot-hinta.fi API.
-func New() *Client {
-	return &Client{baseURL: defaultBaseURL, http: &http.Client{Timeout: 20 * time.Second}}
+// New returns a client targeting the public spot-hinta.fi API. A nil logger
+// disables logging.
+func New(log *slog.Logger) *Client {
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return &Client{baseURL: defaultBaseURL, http: &http.Client{Timeout: 20 * time.Second}, log: log}
 }
 
 // PlanAhead returns the heating schedule. The returned slice is in the order
@@ -60,6 +66,7 @@ func (c *Client) PlanAhead(ctx context.Context, p Params) ([]Period, error) {
 		p.PriceAlwaysAllowed,
 		p.MaxPrice,
 	)
+	c.log.Debug("spot-hinta PlanAhead request", "url", u)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
