@@ -117,11 +117,19 @@ never live in the plist or any file.
 value prompts for the secret, keeping it out of your shell history:
 
 ```sh
-security add-generic-password -U -a "$USER" -s ebeco-spot-email    -w
-security add-generic-password -U -a "$USER" -s ebeco-spot-password -w
+security add-generic-password -U -a "$USER" -s ebeco-spot-email    -T /usr/bin/security -w
+security add-generic-password -U -a "$USER" -s ebeco-spot-password -T /usr/bin/security -w
 ```
 
 (Enter your Ebeco email at the first prompt, your password at the second.)
+
+`-T /usr/bin/security` puts the `security` tool on each item's trusted-app
+list, so the background agent can read it **without** popping an authorization
+dialog. If macOS still prompts on first launch (the codesign "partition list"
+can require it), click **Always Allow** once — or recreate the items with `-A`
+in place of `-T /usr/bin/security` to allow any of your processes to read them
+unprompted (acceptable for a per-user secret, same threat model as a
+`chmod 600` file).
 
 **2. Install and start the agent:**
 

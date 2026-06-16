@@ -70,10 +70,9 @@ install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychai
 	    -e 's|__PREFIX__|$(PREFIX)|g' \
 	    dist/com.github.paveq.ebeco-spot.plist.in > "$(PLIST)"
 	@launchctl bootout $(DOMAIN) "$(PLIST)" 2>/dev/null || true
-	launchctl bootstrap $(DOMAIN) "$(PLIST)"
 	launchctl enable $(DOMAIN)/$(LABEL)
-	launchctl kickstart -k $(DOMAIN)/$(LABEL)
-	@echo "installed and started; logs: make logs"
+	launchctl bootstrap $(DOMAIN) "$(PLIST)"
+	@echo "installed and started (RunAtLoad); logs: make logs"
 
 .PHONY: uninstall
 uninstall: ## Stop & remove the macOS LaunchAgent (leaves installed files)

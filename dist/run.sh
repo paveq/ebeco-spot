@@ -5,10 +5,11 @@
 # live in the plist or on disk, then execs the binary that sits next to this
 # script. Set the items up once with:
 #
-#   security add-generic-password -U -a "$USER" -s ebeco-spot-email    -w
-#   security add-generic-password -U -a "$USER" -s ebeco-spot-password -w
+#   security add-generic-password -U -a "$USER" -s ebeco-spot-email    -T /usr/bin/security -w
+#   security add-generic-password -U -a "$USER" -s ebeco-spot-password -T /usr/bin/security -w
 #
-# (-w with no value prompts so the secret stays out of your shell history.)
+# (-w with no value prompts so the secret stays out of your shell history;
+#  -T /usr/bin/security lets this script read it unattended, no GUI dialog.)
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
