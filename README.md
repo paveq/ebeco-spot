@@ -44,6 +44,10 @@ So if you bump the thermostat to 27 °C in the Ebeco app, that becomes the new
 baseline and survives restarts and on/off cycling. Baselines are tracked
 per-device.
 
+On a clean shutdown (SIGINT/SIGTERM — e.g. `launchctl bootout`, logout, or
+Ctrl-C) the controller writes each device's baseline target before exiting, so
+it never leaves the thermostat parked at the low "off" setpoint.
+
 ## Configuration
 
 Settings live in a TOML file; **credentials come from the environment** and are

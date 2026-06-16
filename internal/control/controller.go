@@ -27,6 +27,10 @@ const refetchMargin = 3 * time.Hour
 // poll interval and doubles each failure up to this ceiling.
 const fetchBackoffMax = time.Hour
 
+// shutdownTimeout bounds the baseline-restore writes on clean shutdown. It is
+// kept short so we finish before launchd escalates SIGTERM to SIGKILL.
+const shutdownTimeout = 5 * time.Second
+
 // Controller owns all mutable control state. It is single-goroutine: every
 // method runs from Run's loop.
 type Controller struct {
@@ -80,6 +84,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			c.log.Info("shutting down")
+			c.restoreBaselines()
 			return ctx.Err()
 		case <-ticker.C:
 			c.tick(ctx)
@@ -252,15 +257,7 @@ func (c *Controller) apply(ctx context.Context, on bool) {
 			target = c.baselineFor(id)
 		}
 
-		in := ebeco.UpdateInput{ID: id, TemperatureSet: &target}
-		if c.cfg.EnforceManualMode {
-			powerOn := true
-			program := c.cfg.ProgramName
-			in.PowerOn = &powerOn
-			in.SelectedProgram = &program
-		}
-
-		if err := c.ebeco.UpdateDevice(ctx, in); err != nil {
+		if err := c.writeTarget(ctx, id, target); err != nil {
 			// Leave appliedOn unchanged so this device is retried next tick.
 			c.log.Error("failed to set device target", "device", id, "on", on, "target", target, "err", err)
 			continue
@@ -268,6 +265,36 @@ func (c *Controller) apply(ctx context.Context, on bool) {
 		c.appliedOn[id] = on
 		c.log.Info("set device target", "device", id, "on", on, "target", target, "next_change", c.nextChangeStr())
 	}
+}
+
+// restoreBaselines writes each device's baseline target on clean shutdown, so
+// the thermostat is left at a comfortable setpoint rather than stuck at the
+// "off" value. The controller's context is already cancelled by now, so it uses
+// a fresh, short-lived context for the writes.
+func (c *Controller) restoreBaselines() {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	for _, id := range c.cfg.DeviceIDs {
+		target := c.baselineFor(id)
+		if err := c.writeTarget(ctx, id, target); err != nil {
+			c.log.Error("failed to restore baseline target on shutdown", "device", id, "target", target, "err", err)
+			continue
+		}
+		c.log.Info("restored baseline target on shutdown", "device", id, "target", target)
+	}
+}
+
+// writeTarget sets a device's target temperature, also forcing powerOn and the
+// constant-setpoint program when manual-mode enforcement is enabled.
+func (c *Controller) writeTarget(ctx context.Context, id int, target float64) error {
+	in := ebeco.UpdateInput{ID: id, TemperatureSet: &target}
+	if c.cfg.EnforceManualMode {
+		powerOn := true
+		program := c.cfg.ProgramName
+		in.PowerOn = &powerOn
+		in.SelectedProgram = &program
+	}
+	return c.ebeco.UpdateDevice(ctx, in)
 }
 
 // applyBackup drives heating from the backup-hours list when the schedule is
