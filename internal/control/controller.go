@@ -97,11 +97,7 @@ func (c *Controller) initBaselines(ctx context.Context) {
 			c.log.Warn("startup: could not read device target", "device", id, "err", err)
 			continue
 		}
-		c.log.Info("startup device state",
-			"device", id, "name", dev.DisplayName,
-			"selectedProgram", dev.SelectedProgram, "programState", dev.ProgramState,
-			"powerOn", dev.PowerOn,
-			"target", dev.TemperatureSet, "floor", dev.TemperatureFloor, "room", dev.TemperatureRoom)
+		c.logDeviceState("startup device state", id, dev)
 		c.captureBaseline(id, dev.TemperatureSet)
 	}
 }
@@ -247,6 +243,7 @@ func (c *Controller) apply(ctx context.Context, on bool) {
 		if dev, err := c.ebeco.GetDevice(ctx, id); err != nil {
 			c.log.Warn("could not read current target before control", "device", id, "err", err)
 		} else {
+			c.logDeviceState("device state before control", id, dev)
 			c.captureBaseline(id, dev.TemperatureSet)
 		}
 
@@ -269,7 +266,7 @@ func (c *Controller) apply(ctx context.Context, on bool) {
 			continue
 		}
 		c.appliedOn[id] = on
-		c.log.Info("set device target", "device", id, "on", on, "target", target)
+		c.log.Info("set device target", "device", id, "on", on, "target", target, "next_change", c.nextChangeStr())
 	}
 }
 
@@ -346,9 +343,24 @@ func (c *Controller) logStatus() {
 			state = "off"
 		}
 	}
-	next := "n/a"
-	if !c.nextChange.IsZero() {
-		next = c.nextChange.Format(time.RFC3339)
+	c.log.Debug("running", "heating", state, "next_change", c.nextChangeStr())
+}
+
+// logDeviceState emits a uniform device snapshot whenever we read a device, so
+// the startup read and every read-before-write log the same fields.
+func (c *Controller) logDeviceState(msg string, id int, dev ebeco.Device) {
+	c.log.Info(msg,
+		"device", id, "name", dev.DisplayName,
+		"selectedProgram", dev.SelectedProgram, "programState", dev.ProgramState,
+		"powerOn", dev.PowerOn, "relayOn", dev.RelayOn,
+		"target", dev.TemperatureSet, "floor", dev.TemperatureFloor, "room", dev.TemperatureRoom)
+}
+
+// nextChangeStr renders the next scheduled flip for logging, or "n/a" when none
+// is known (e.g. while in backup mode).
+func (c *Controller) nextChangeStr() string {
+	if c.nextChange.IsZero() {
+		return "n/a"
 	}
-	c.log.Info("running", "heating", state, "next_change", next)
+	return c.nextChange.Format(time.RFC3339)
 }
