@@ -16,7 +16,6 @@ GOFLAGS ?=
 LABEL   := com.github.paveq.ebeco-spot
 PREFIX  ?= $(HOME)/.local/share/ebeco-spot
 PLIST   := $(HOME)/Library/LaunchAgents/$(LABEL).plist
-LOGFILE := $(HOME)/Library/Logs/ebeco-spot.log
 DOMAIN  := gui/$(shell id -u)
 
 # Build static, dependency-free binaries (no libc linkage).
@@ -58,7 +57,7 @@ check: fmt vet test ## Format, vet and test
 .PHONY: install
 install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychain)
 	@command -v launchctl >/dev/null || { echo "install target is macOS-only"; exit 1; }
-	@mkdir -p "$(PREFIX)" "$(dir $(PLIST))" "$(dir $(LOGFILE))"
+	@mkdir -p "$(PREFIX)" "$(dir $(PLIST))"
 	install -m 0755 $(BINARY) "$(PREFIX)/ebeco-spot"
 	install -m 0755 dist/run.sh "$(PREFIX)/run.sh"
 	@if [ ! -f "$(PREFIX)/config.toml" ]; then \
@@ -69,7 +68,6 @@ install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychai
 	fi
 	sed -e 's|__LABEL__|$(LABEL)|g' \
 	    -e 's|__PREFIX__|$(PREFIX)|g' \
-	    -e 's|__LOGFILE__|$(LOGFILE)|g' \
 	    dist/com.github.paveq.ebeco-spot.plist.in > "$(PLIST)"
 	@launchctl bootout $(DOMAIN) "$(PLIST)" 2>/dev/null || true
 	launchctl bootstrap $(DOMAIN) "$(PLIST)"
@@ -78,18 +76,18 @@ install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychai
 	@echo "installed and started; logs: make logs"
 
 .PHONY: uninstall
-uninstall: ## Stop & remove the macOS LaunchAgent (leaves installed files and logs)
+uninstall: ## Stop & remove the macOS LaunchAgent (leaves installed files)
 	@launchctl bootout $(DOMAIN) "$(PLIST)" 2>/dev/null || true
 	rm -f "$(PLIST)"
-	@echo "uninstalled; files under $(PREFIX) and $(LOGFILE) left in place"
+	@echo "uninstalled; files under $(PREFIX) left in place"
 
 .PHONY: status
 status: ## Show the LaunchAgent's state
 	@launchctl print $(DOMAIN)/$(LABEL) 2>/dev/null || echo "not loaded (run: make install)"
 
 .PHONY: logs
-logs: ## Tail the service log
-	@touch "$(LOGFILE)"; tail -f "$(LOGFILE)"
+logs: ## Stream logs from the unified logging system (Ctrl-C to stop)
+	@log stream --predicate 'process == "ebeco-spot"' --level info
 
 .PHONY: clean
 clean: ## Remove build artifacts

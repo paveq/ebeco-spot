@@ -143,9 +143,21 @@ unattended afterwards.
 **Manage it:**
 
 ```sh
-make logs        # tail ~/Library/Logs/ebeco-spot.log
+make logs        # stream logs live (see below)
 make status      # launchctl print … (running state, last exit code, PID)
-make uninstall   # stop and remove the agent (leaves installed files + logs)
+make uninstall   # stop and remove the agent (leaves installed files)
+```
+
+### Logs
+
+The plist deliberately sets no log file. launchd forwards the job's
+stdout/stderr into the macOS **unified logging system**, which the OS caps and
+rotates automatically — nothing grows unbounded on disk. View it like
+`journalctl`:
+
+```sh
+log stream --predicate 'process == "ebeco-spot"'              # live (make logs)
+log show   --predicate 'process == "ebeco-spot"' --last 1h    # recent history
 ```
 
 To raise log verbosity, add `-debug` to the `exec` line in

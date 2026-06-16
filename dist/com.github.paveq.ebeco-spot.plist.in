@@ -29,9 +29,12 @@
 	<key>ProcessType</key>
 	<string>Background</string>
 
-	<key>StandardOutPath</key>
-	<string>__LOGFILE__</string>
-	<key>StandardErrorPath</key>
-	<string>__LOGFILE__</string>
+	<!--
+	  No StandardOutPath/StandardErrorPath on purpose: launchd forwards the
+	  job's stdout/stderr into the unified logging system, which the OS caps
+	  and rotates automatically. View it with:
+	    log stream --predicate 'process == "ebeco-spot"'   (live)
+	    log show   --predicate 'process == "ebeco-spot"' --last 1h
+	-->
 </dict>
 </plist>
