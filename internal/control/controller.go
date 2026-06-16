@@ -22,9 +22,6 @@ import (
 // hours before its furthest-future entry.
 const refetchMargin = 3 * time.Hour
 
-// statusLogEvery throttles the periodic "still running" log line.
-const statusLogEvery = 2 * time.Minute
-
 // fetchBackoffMax caps the exponential backoff between spot-hinta plan fetches
 // while the plan is unavailable or unusable. The base interval is the configured
 // poll interval and doubles each failure up to this ceiling.
@@ -54,8 +51,6 @@ type Controller struct {
 	currentOn  bool         // last decided logical state (for logging)
 	appliedOn  map[int]bool // last successfully applied physical state, per device
 	nextChange time.Time    // when the schedule next flips (for logging)
-
-	lastStatusLog time.Time
 }
 
 // New builds a Controller.
@@ -120,7 +115,7 @@ func (c *Controller) tick(ctx context.Context) {
 		c.reload(ctx, now)
 	}
 	c.reconcile(ctx, now)
-	c.maybeLogStatus(now)
+	c.logStatus()
 }
 
 // reload fetches and stores a fresh plan. A failed, empty, or non-covering fetch
@@ -342,12 +337,7 @@ func (c *Controller) spotParams() spothinta.Params {
 	}
 }
 
-func (c *Controller) maybeLogStatus(now time.Time) {
-	if now.Sub(c.lastStatusLog) < statusLogEvery {
-		return
-	}
-	c.lastStatusLog = now
-
+func (c *Controller) logStatus() {
 	state := "unknown"
 	if c.haveState {
 		if c.currentOn {
