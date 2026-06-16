@@ -6,3 +6,6 @@
 /config.toml
 /baseline.json
 /baseline.json.tmp
+
+# 1Password env file (secret references; .env.example is committed)
+/.env

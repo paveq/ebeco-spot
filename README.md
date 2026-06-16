@@ -82,6 +82,30 @@ EBECO_EMAIL=you@example.com EBECO_PASSWORD=secret \
 Flags: `-config <path>` (or `EBECO_CONFIG` env, default `config.toml`) and
 `-debug` for verbose logging. Logs are structured (slog) on stderr.
 
+### With 1Password
+
+If your Ebeco credentials live in 1Password, inject them at runtime with
+[`op run`](https://developer.1password.com/docs/cli/secret-references/) so they
+never touch a file or your shell history. Create a `.env` of secret references
+(adjust the vault/item/field names to match your store):
+
+```sh
+# .env
+EBECO_EMAIL=op://Personal/ebeco/username
+EBECO_PASSWORD=op://Personal/ebeco/password
+```
+
+Then run any command through `op run`:
+
+```sh
+op run --env-file=.env -- make run
+op run --env-file=.env -- make list
+op run --env-file=.env -- ./bin/ebeco-spot -config config.toml
+```
+
+`op run` resolves the references (prompting for unlock as needed) and exports
+the values only to the child process.
+
 ## Running as a service (systemd)
 
 `/etc/systemd/system/ebeco-spot.service`:
