@@ -1,0 +1,7 @@
+# Built binary
+/ebeco-spot
+
+# Local config (may contain device ids) and runtime state
+/config.toml
+/baseline.json
+/baseline.json.tmp

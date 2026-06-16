@@ -1,0 +1,38 @@
+# ebeco-spot configuration.
+# Credentials are NOT here — set them in the environment instead:
+#   EBECO_EMAIL=you@example.com
+#   EBECO_PASSWORD=secret
+
+# Ebeco device ids to control. Find them in the startup logs (the app logs every
+# device's id/name on launch) or via the GetUserDevices endpoint.
+device_ids = [12345]
+
+# --- spot-hinta.fi PlanAhead parameters (mirror of the Shelly script) ---
+region                 = "FI"        # DK1, DK2, EE, FI, LT, LV, NO1..NO5, SE1..SE4
+selected_price_periods = ["1-10"]    # cheapest "ranks" to heat in; use quotes for ranges
+price_period_length    = 30          # minutes per rank (15, 30, 45, 60, 75, 90, 120)
+night_hours            = [22, 23, 0, 1, 2, 3, 4, 5, 6]  # night-transfer hours
+price_difference       = 0           # night vs day price diff (negative = night cheaper)
+only_night_hours       = false       # if true, only search night hours
+price_always_allowed   = -99         # daytime price always allowed (-99 disables)
+maximum_price          = 20          # max allowed price, euro cents
+backup_hours           = [3, 4, 5, 6]# heat ON during these hours if spot-hinta is unreachable
+inverted               = false       # invert the on/off logic
+
+# --- Temperature control (°C) ---
+on_temperature  = 26   # default baseline used when none has been persisted yet
+off_temperature = 15   # setpoint applied when "off"
+baseline_min    = 20   # only targets within [baseline_min, baseline_max] are
+baseline_max    = 30   #   captured as a (manually adjusted) baseline
+
+# --- Heating-mode enforcement ---
+# On every write also send powerOn=true and force a constant-setpoint program so
+# the spot-price target is honoured even if a built-in weekly schedule is active.
+enforce_manual_mode = true
+program_name        = "Manual"   # change to "Home" etc. if your device expects that
+
+# --- Files, timing, endpoint ---
+state_file    = "baseline.json"
+poll_interval = "15s"
+api_base_url  = "https://ebecoconnect.com"
+api_tenant_id = 1   # ABP Abp.TenantId header; Ebeco accounts use the default tenant (1)
