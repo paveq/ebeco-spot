@@ -84,6 +84,7 @@ EBECO_EMAIL=you@example.com EBECO_PASSWORD=secret \
 ```
 
 Flags: `-config <path>` (or `EBECO_CONFIG` env, default `config.toml`),
+`-list` to authenticate, print every device (id, name, program) and exit,
 `-debug` for verbose logging, `-log <stdout|oslog>` to override the configured
 log output, and `-keychain` (macOS) to read the credentials from the Keychain
 instead of the environment. By default logs are structured (slog) on stdout.
@@ -178,9 +179,9 @@ level — add `--level debug` to `log stream`, or `--debug` to `log show`, to se
 those. The non-service config option is `log_output` (`"stdout"` or `"oslog"`);
 `make run` defaults to `stdout`.
 
-To raise log verbosity, add `-debug` to the `exec` line in
-`~/.local/share/ebeco-spot/run.sh` (or run `make run` in a terminal for a
-one-off).
+To raise log verbosity, add a `-debug` entry to the `ProgramArguments` array in
+`~/Library/LaunchAgents/com.github.paveq.ebeco-spot.plist` and reload it with
+`make install` (or run `make run` in a terminal for a one-off).
 
 ## Running as a service (Linux, systemd)
 
