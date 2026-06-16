@@ -91,3 +91,11 @@ api_base_url = "https://ebecoconnect.com"
 
 # ABP Abp.TenantId header. Ebeco accounts use the default tenant (1).
 api_tenant_id = 1
+
+# === Logging ===
+
+# Where logs go:
+#   "stdout" — structured text on stdout (default; good for terminals/systemd)
+#   "oslog"  — macOS unified logging system, viewable with `log show`/`log stream`
+# The launchd service forces "oslog" via a -log flag regardless of this value.
+log_output = "stdout"

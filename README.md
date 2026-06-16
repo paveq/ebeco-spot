@@ -158,15 +158,20 @@ make uninstall   # stop and remove the agent (leaves installed files)
 
 ### Logs
 
-The plist deliberately sets no log file. launchd forwards the job's
-stdout/stderr into the macOS **unified logging system**, which the OS caps and
-rotates automatically — nothing grows unbounded on disk. View it like
-`journalctl`:
+The LaunchAgent runs the binary with `-log oslog`, so it logs straight into the
+macOS **unified logging system** via `os_log` (no log file — the OS caps and
+rotates the store automatically). View it like `journalctl`:
 
 ```sh
-log stream --predicate 'process == "ebeco-spot"'              # live (make logs)
-log show   --predicate 'process == "ebeco-spot"' --last 1h    # recent history
+log stream --predicate 'subsystem == "com.github.paveq.ebeco-spot"'              # live (make logs)
+log show   --predicate 'subsystem == "com.github.paveq.ebeco-spot"' --last 1h    # recent history
 ```
+
+`INFO`/`WARN` records map to the unified log's *default* level, so they persist
+and show without extra flags; `DEBUG` (the `-debug` flag) maps to the debug
+level — add `--level debug` to `log stream`, or `--debug` to `log show`, to see
+those. The non-service config option is `log_output` (`"stdout"` or `"oslog"`);
+`make run` defaults to `stdout`.
 
 To raise log verbosity, add `-debug` to the `exec` line in
 `~/.local/share/ebeco-spot/run.sh` (or run `make run` in a terminal for a

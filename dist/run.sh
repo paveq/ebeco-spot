@@ -24,4 +24,6 @@ EBECO_PASSWORD=$(security find-generic-password -s ebeco-spot-password -w) || {
 }
 export EBECO_EMAIL EBECO_PASSWORD
 
-exec "$here/ebeco-spot" -config "$here/config.toml"
+# -log oslog routes logs to the macOS unified logging system regardless of the
+# config file; view them with `make logs`.
+exec "$here/ebeco-spot" -config "$here/config.toml" -log oslog

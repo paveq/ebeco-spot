@@ -18,8 +18,14 @@ PREFIX  ?= $(HOME)/.local/share/ebeco-spot
 PLIST   := $(HOME)/Library/LaunchAgents/$(LABEL).plist
 DOMAIN  := gui/$(shell id -u)
 
-# Build static, dependency-free binaries (no libc linkage).
+# On macOS, cgo is required for the os_log (unified logging) backend and
+# libSystem is always present, so enable it. Elsewhere build static,
+# dependency-free binaries (no libc linkage).
+ifeq ($(shell uname -s),Darwin)
+export CGO_ENABLED := 1
+else
 export CGO_ENABLED := 0
+endif
 
 .DEFAULT_GOAL := build
 
@@ -86,7 +92,7 @@ status: ## Show the LaunchAgent's state
 
 .PHONY: logs
 logs: ## Stream logs from the unified logging system (Ctrl-C to stop)
-	@log stream --predicate 'process == "ebeco-spot"' --level info
+	@log stream --predicate 'subsystem == "com.github.paveq.ebeco-spot"' --level info
 
 .PHONY: clean
 clean: ## Remove build artifacts

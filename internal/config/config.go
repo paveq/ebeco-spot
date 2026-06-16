@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -62,7 +63,16 @@ type Config struct {
 	PollInterval Duration `toml:"poll_interval"` // control loop tick, e.g. "15s"
 	APIBaseURL   string   `toml:"api_base_url"`  // Ebeco Connect base URL
 	APITenantID  int      `toml:"api_tenant_id"` // ABP Abp.TenantId header; Ebeco uses the default tenant (1)
+
+	// Logging.
+	LogOutput string `toml:"log_output"` // "stdout" (structured text) or "oslog" (macOS unified logging)
 }
+
+// LogOutput values.
+const (
+	LogStdout = "stdout"
+	LogOSLog  = "oslog"
+)
 
 func defaults() Config {
 	return Config{
@@ -82,6 +92,7 @@ func defaults() Config {
 		BaselineMax:          30,
 		EnforceManualMode:    true,
 		ProgramName:          "Manual",
+		LogOutput:            LogStdout,
 		StateFile:            "baseline.json",
 		PollInterval:         Duration{15 * time.Second},
 		APIBaseURL:           "https://ebecoconnect.com",
@@ -130,6 +141,14 @@ func read(path string, tolerateMissing bool) (Config, error) {
 
 	cfg.Email = os.Getenv("EBECO_EMAIL")
 	cfg.Password = os.Getenv("EBECO_PASSWORD")
+
+	switch cfg.LogOutput = strings.ToLower(strings.TrimSpace(cfg.LogOutput)); cfg.LogOutput {
+	case "":
+		cfg.LogOutput = LogStdout
+	case LogStdout, LogOSLog:
+	default:
+		return Config{}, fmt.Errorf("log_output %q is invalid (want %q or %q)", cfg.LogOutput, LogStdout, LogOSLog)
+	}
 
 	// Mirror the Shelly script: searching only night hours is expressed by a
 	// very negative price modifier.

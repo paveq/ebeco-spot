@@ -30,11 +30,11 @@
 	<string>Background</string>
 
 	<!--
-	  No StandardOutPath/StandardErrorPath on purpose: launchd forwards the
-	  job's stdout/stderr into the unified logging system, which the OS caps
-	  and rotates automatically. View it with:
-	    log stream --predicate 'process == "ebeco-spot"'   (live)
-	    log show   --predicate 'process == "ebeco-spot"' --last 1h
+	  No StandardOutPath/StandardErrorPath on purpose: run.sh passes -log oslog,
+	  so the binary logs into the unified logging system (os_log), which the OS
+	  caps and rotates automatically. View it with:
+	    log stream --predicate 'subsystem == "com.github.paveq.ebeco-spot"'   (live)
+	    log show   --predicate 'subsystem == "com.github.paveq.ebeco-spot"' --last 1h
 	-->
 </dict>
 </plist>

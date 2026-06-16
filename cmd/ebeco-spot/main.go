@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/paveq/ebeco-spot/internal/applog"
 	"github.com/paveq/ebeco-spot/internal/baseline"
 	"github.com/paveq/ebeco-spot/internal/config"
 	"github.com/paveq/ebeco-spot/internal/control"
@@ -23,28 +24,42 @@ func main() {
 	configPath := flag.String("config", envOr("EBECO_CONFIG", "config.toml"), "path to TOML config file")
 	debug := flag.Bool("debug", false, "enable debug logging")
 	list := flag.Bool("list", false, "authenticate, print all devices (id, name, program) and exit")
+	logOutput := flag.String("log", "", `log output: "stdout" or "oslog" (overrides log_output in config)`)
 	flag.Parse()
-
-	level := slog.LevelInfo
-	if *debug {
-		level = slog.LevelDebug
-	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	runFn := run
 	if *list {
 		runFn = listDevices
 	}
-	if err := runFn(log, *configPath); err != nil {
-		log.Error("fatal", "err", err)
+	if err := runFn(*configPath, *debug, *logOutput); err != nil {
+		// Bootstrap logger: a configured logger may not exist yet on failure.
+		slog.New(slog.NewTextHandler(os.Stderr, nil)).Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
+// newLogger builds the application logger from the config, with -debug raising
+// the level and a non-empty -log flag overriding the configured output.
+func newLogger(cfg config.Config, debug bool, override string) (*slog.Logger, error) {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	output := cfg.LogOutput
+	if override != "" {
+		output = override
+	}
+	return applog.New(output, level)
+}
+
 // listDevices authenticates and prints every device on the account so the user
 // can discover the ids/program names to put in the config.
-func listDevices(log *slog.Logger, configPath string) error {
+func listDevices(configPath string, debug bool, logOutput string) error {
 	cfg, err := config.LoadForList(configPath)
+	if err != nil {
+		return err
+	}
+	log, err := newLogger(cfg, debug, logOutput)
 	if err != nil {
 		return err
 	}
@@ -73,8 +88,12 @@ func listDevices(log *slog.Logger, configPath string) error {
 	return nil
 }
 
-func run(log *slog.Logger, configPath string) error {
+func run(configPath string, debug bool, logOutput string) error {
 	cfg, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	log, err := newLogger(cfg, debug, logOutput)
 	if err != nil {
 		return err
 	}
@@ -93,7 +112,7 @@ func run(log *slog.Logger, configPath string) error {
 		return err
 	}
 
-	ctrl := control.New(cfg, eb, spothinta.New(), store, log)
+	ctrl := control.New(cfg, eb, spothinta.New(log), store, log)
 	if err := ctrl.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
