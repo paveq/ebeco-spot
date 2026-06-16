@@ -12,7 +12,8 @@ replaced by the Ebeco Connect API's target-temperature control.
 
 - Authenticates to the [Ebeco Connect API](https://ebecoconnect.com/swagger)
   with email/password and keeps the bearer token fresh (auto re-auth on expiry
-  and on a `401`).
+  and on a `401`). Repeated auth failures back off exponentially (15 s → 10 min)
+  so a credential or outage problem can't hammer the token endpoint.
 - Fetches a `PlanAhead` schedule from spot-hinta.fi (region, night hours, price
   ranks, max price … all configurable, mirroring the Shelly settings).
 - Each cycle it determines whether heating should be **on**, and **only on a
@@ -22,8 +23,11 @@ replaced by the Ebeco Connect API's target-temperature control.
 - On every write it also sends `powerOn=true` and forces a constant-setpoint
   program (`program_name`, default `Manual`) so the spot-price target is
   honoured even if a built-in weekly schedule would otherwise override it.
-- If spot-hinta is unreachable it falls back to **backup hours**: heat on during
-  `backup_hours`, otherwise off.
+- If spot-hinta is unreachable (or returns an empty/non-covering plan) it falls
+  back to **backup hours**: heat on during `backup_hours`, otherwise off. While
+  degraded it keeps using a still-valid older plan if it has one, and retries the
+  fetch with exponential backoff (poll interval → 1 h) instead of every tick.
+  Entering and leaving backup mode are logged as distinct transitions.
 
 ### Baseline persistence (manual override friendly)
 
@@ -56,11 +60,23 @@ device's id and name on startup.
 
 ## Build & run
 
+With the included `Makefile` (run `make help` to see all targets):
+
 ```sh
-go build -o ebeco-spot ./cmd/ebeco-spot
+export EBECO_EMAIL=you@example.com EBECO_PASSWORD=secret
+
+make build          # compiles to bin/ebeco-spot
+make list           # authenticate and print your devices
+make run            # run the controller (CONFIG=... to override config.toml)
+```
+
+Or directly with the Go toolchain:
+
+```sh
+go build -o bin/ebeco-spot ./cmd/ebeco-spot
 
 EBECO_EMAIL=you@example.com EBECO_PASSWORD=secret \
-  ./ebeco-spot -config config.toml
+  ./bin/ebeco-spot -config config.toml
 ```
 
 Flags: `-config <path>` (or `EBECO_CONFIG` env, default `config.toml`) and

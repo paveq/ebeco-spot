@@ -1,5 +1,6 @@
-# Built binary
+# Built binaries
 /ebeco-spot
+/bin/
 
 # Local config (may contain device ids) and runtime state
 /config.toml

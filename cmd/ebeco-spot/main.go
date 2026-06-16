@@ -52,7 +52,7 @@ func listDevices(log *slog.Logger, configPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	eb := ebeco.New(cfg.APIBaseURL, cfg.Email, cfg.Password, cfg.APITenantID)
+	eb := ebeco.New(cfg.APIBaseURL, cfg.Email, cfg.Password, cfg.APITenantID, log)
 	if err := eb.Authenticate(ctx); err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func run(log *slog.Logger, configPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	eb := ebeco.New(cfg.APIBaseURL, cfg.Email, cfg.Password, cfg.APITenantID)
+	eb := ebeco.New(cfg.APIBaseURL, cfg.Email, cfg.Password, cfg.APITenantID, log)
 	if err := eb.Authenticate(ctx); err != nil {
 		return err
 	}

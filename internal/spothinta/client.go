@@ -83,7 +83,7 @@ func (c *Client) PlanAhead(ctx context.Context, p Params) ([]Period, error) {
 
 	var periods []Period
 	if err := json.Unmarshal(body, &periods); err != nil {
-		return nil, fmt.Errorf("spot-hinta PlanAhead: decoding: %w", err)
+		return nil, fmt.Errorf("spot-hinta PlanAhead: decoding %q: %w", truncate(body), err)
 	}
 	return periods, nil
 }

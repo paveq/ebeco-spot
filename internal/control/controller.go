@@ -25,6 +25,11 @@ const refetchMargin = 3 * time.Hour
 // statusLogEvery throttles the periodic "still running" log line.
 const statusLogEvery = 2 * time.Minute
 
+// fetchBackoffMax caps the exponential backoff between spot-hinta plan fetches
+// while the plan is unavailable or unusable. The base interval is the configured
+// poll interval and doubles each failure up to this ceiling.
+const fetchBackoffMax = time.Hour
+
 // Controller owns all mutable control state. It is single-goroutine: every
 // method runs from Run's loop.
 type Controller struct {
@@ -38,6 +43,13 @@ type Controller struct {
 	instructionsExp time.Time          // when to refetch the plan
 	needReload      bool
 
+	// Exponential backoff for spot-hinta fetches: nextFetchAt gates the next
+	// attempt; fetchBackoff is the current (doubling) gap, capped at
+	// fetchBackoffMax. Reset whenever a fetch yields a usable plan.
+	fetchBackoff time.Duration
+	nextFetchAt  time.Time
+	inBackup     bool // currently in backup mode (drives entering/leaving logs)
+
 	haveState  bool         // whether currentOn is meaningful yet
 	currentOn  bool         // last decided logical state (for logging)
 	appliedOn  map[int]bool // last successfully applied physical state, per device
@@ -49,13 +61,14 @@ type Controller struct {
 // New builds a Controller.
 func New(cfg config.Config, eb *ebeco.Client, spot *spothinta.Client, store *baseline.Store, log *slog.Logger) *Controller {
 	return &Controller{
-		cfg:        cfg,
-		ebeco:      eb,
-		spot:       spot,
-		store:      store,
-		log:        log,
-		needReload: true,
-		appliedOn:  make(map[int]bool),
+		cfg:          cfg,
+		ebeco:        eb,
+		spot:         spot,
+		store:        store,
+		log:          log,
+		needReload:   true,
+		appliedOn:    make(map[int]bool),
+		fetchBackoff: cfg.PollInterval.Duration,
 	}
 }
 
@@ -98,57 +111,88 @@ func (c *Controller) initBaselines(ctx context.Context) {
 	}
 }
 
-// tick is one control cycle.
+// tick is one control cycle: optionally refetch the plan (rate-limited by the
+// fetch backoff), then reconcile the desired state. reconcile always runs so a
+// still-valid older plan keeps driving heating even when a refetch is failing.
 func (c *Controller) tick(ctx context.Context) {
 	now := time.Now()
-	if c.needReload || now.After(c.instructionsExp) {
-		if !c.reload(ctx, now) {
-			// Reload failed; backup logic already applied. Try again next tick.
-			c.maybeLogStatus(now)
-			return
-		}
+	if (c.needReload || now.After(c.instructionsExp)) && !now.Before(c.nextFetchAt) {
+		c.reload(ctx, now)
 	}
 	c.reconcile(ctx, now)
 	c.maybeLogStatus(now)
 }
 
-// reload fetches and stores a fresh plan. It returns false on failure, in which
-// case backup logic has already been applied.
-func (c *Controller) reload(ctx context.Context, now time.Time) bool {
+// reload fetches and stores a fresh plan. A failed, empty, or non-covering fetch
+// grows the exponential backoff so we don't hammer spot-hinta; it does not apply
+// backup itself — reconcile does that from whatever plan we end up with.
+func (c *Controller) reload(ctx context.Context, now time.Time) {
 	periods, err := c.spot.PlanAhead(ctx, c.spotParams())
 	if err != nil {
-		c.log.Warn("fetching spot-hinta plan failed; applying backup logic", "err", err)
-		c.needReload = true
-		c.applyBackup(ctx, now)
-		return false
+		c.failFetch(now)
+		c.log.Warn("fetching spot-hinta plan failed; backing off",
+			"err", err, "retry_after", c.nextFetchAt.Format(time.RFC3339))
+		return
 	}
 	if len(periods) == 0 {
-		c.log.Warn("spot-hinta returned an empty plan; applying backup logic")
-		c.needReload = true
-		c.applyBackup(ctx, now)
-		return false
+		c.failFetch(now)
+		c.log.Warn("spot-hinta returned an empty plan; backing off",
+			"retry_after", c.nextFetchAt.Format(time.RFC3339))
+		return
 	}
 
 	// Sort descending so index 0 is the furthest-future period start.
 	slices.SortFunc(periods, func(a, b spothinta.Period) int { return cmp.Compare(b.EpochMs, a.EpochMs) })
 	c.instructions = periods
-	c.needReload = false
 	c.instructionsExp = time.UnixMilli(periods[0].EpochMs).Add(-refetchMargin)
 
+	if _, ok := c.desiredState(now); !ok {
+		// A plan that does not cover now (future-only or already stale) won't be
+		// fixed by an immediate refetch, so back off like a failure. Matches the
+		// Shelly script, which holds rather than refetch-storming in this case.
+		c.failFetch(now)
+		c.log.Warn("spot-hinta plan does not cover the current time; backing off",
+			"periods", len(periods), "retry_after", c.nextFetchAt.Format(time.RFC3339))
+		return
+	}
+
+	c.succeedFetch()
 	c.log.Info("loaded spot-hinta plan",
 		"periods", len(periods),
 		"refetch_after", c.instructionsExp.Format(time.RFC3339))
-	return true
 }
 
-// reconcile decides the desired state for now and applies it.
+// failFetch records a failed or unusable plan fetch: it forces a refetch and
+// pushes the next attempt out by the current backoff, then doubles the backoff
+// up to fetchBackoffMax.
+func (c *Controller) failFetch(now time.Time) {
+	c.needReload = true
+	c.nextFetchAt = now.Add(c.fetchBackoff)
+	c.fetchBackoff = min(c.fetchBackoff*2, fetchBackoffMax)
+}
+
+// succeedFetch records a good, covering plan: clear the refetch flag and reset
+// the backoff to the base poll interval.
+func (c *Controller) succeedFetch() {
+	c.needReload = false
+	c.fetchBackoff = c.cfg.PollInterval.Duration
+	c.nextFetchAt = time.Time{}
+}
+
+// reconcile decides the desired state for now and applies it, falling back to
+// backup logic when no plan covers now.
 func (c *Controller) reconcile(ctx context.Context, now time.Time) {
 	on, ok := c.desiredState(now)
 	if !ok {
-		// Stale or no covering period: fall back and force a refetch next tick.
+		// Stale or no covering period: force a refetch (rate-limited by the
+		// backoff) and drive heating from backup logic until a plan returns.
 		c.needReload = true
 		c.applyBackup(ctx, now)
 		return
+	}
+	if c.inBackup {
+		c.log.Info("recovered from backup mode; spot-hinta plan now drives heating")
+		c.inBackup = false
 	}
 	c.apply(ctx, on)
 }
@@ -238,9 +282,16 @@ func (c *Controller) apply(ctx context.Context, on bool) {
 // unavailable, honouring the inversion setting just like normal operation.
 func (c *Controller) applyBackup(ctx context.Context, now time.Time) {
 	hour := now.Hour()
-	on := slices.Contains(c.cfg.BackupHours, hour)
-	c.log.Warn("backup mode", "hour", hour, "heating_on", c.withInversion(on))
-	c.apply(ctx, c.withInversion(on))
+	on := c.withInversion(slices.Contains(c.cfg.BackupHours, hour))
+	if !c.inBackup {
+		c.log.Warn("entering backup mode; spot-hinta plan unavailable", "hour", hour, "heating_on", on)
+		c.inBackup = true
+	}
+	c.nextChange = time.Time{} // no scheduled change is known while in backup
+	// Per-tick detail at debug; the entering/leaving transitions above and the
+	// "set device target" line in apply carry the signal at info/warn.
+	c.log.Debug("backup mode", "hour", hour, "heating_on", on)
+	c.apply(ctx, on)
 }
 
 // captureBaseline stores target as the device's baseline when it falls inside

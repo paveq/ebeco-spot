@@ -71,3 +71,52 @@ func TestDesiredStateEmpty(t *testing.T) {
 		t.Fatal("expected ok=false for empty plan")
 	}
 }
+
+func TestFetchBackoff(t *testing.T) {
+	const poll = 15 * time.Second
+	c := &Controller{
+		cfg:          config.Config{PollInterval: config.Duration{Duration: poll}},
+		fetchBackoff: poll,
+	}
+
+	// Each failure schedules the next attempt one current-backoff away, then
+	// doubles the backoff for the following failure.
+	now := time.Unix(0, 0)
+	for _, want := range []time.Duration{poll, 2 * poll, 4 * poll} {
+		c.failFetch(now)
+		if gap := c.nextFetchAt.Sub(now); gap != want {
+			t.Fatalf("gap = %v, want %v", gap, want)
+		}
+		if !c.needReload {
+			t.Fatal("failFetch must force a refetch")
+		}
+		now = c.nextFetchAt
+	}
+
+	// Sustained failures saturate at the cap, never beyond.
+	for range 30 {
+		c.failFetch(now)
+		now = c.nextFetchAt
+	}
+	if c.fetchBackoff != fetchBackoffMax {
+		t.Fatalf("backoff = %v, want cap %v", c.fetchBackoff, fetchBackoffMax)
+	}
+	// One more failure schedules exactly the capped gap, not more.
+	base := time.Unix(1000, 0)
+	c.failFetch(base)
+	if gap := c.nextFetchAt.Sub(base); gap != fetchBackoffMax {
+		t.Fatalf("capped gap = %v, want %v", gap, fetchBackoffMax)
+	}
+
+	// A good fetch resets everything.
+	c.succeedFetch()
+	if c.needReload {
+		t.Fatal("succeedFetch must clear needReload")
+	}
+	if c.fetchBackoff != poll {
+		t.Fatalf("backoff after reset = %v, want %v", c.fetchBackoff, poll)
+	}
+	if !c.nextFetchAt.IsZero() {
+		t.Fatalf("nextFetchAt after reset = %v, want zero", c.nextFetchAt)
+	}
+}

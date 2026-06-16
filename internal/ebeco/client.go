@@ -10,11 +10,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+)
+
+// Authentication backoff bounds: after a failed token fetch we wait at least
+// authBackoffBase, doubling up to authBackoffMax, so a sustained outage or bad
+// credentials can't hammer the token endpoint on every API call.
+const (
+	authBackoffBase = 15 * time.Second
+	authBackoffMax  = 10 * time.Minute
 )
 
 // Device mirrors the fields of UserDeviceDto that we care about.
@@ -48,22 +57,33 @@ type Client struct {
 	password string
 	tenantID int
 	http     *http.Client
+	log      *slog.Logger
 
 	mu          sync.Mutex
 	token       string
 	tokenExpiry time.Time
+	// Auth backoff state, all guarded by mu.
+	authBackoff     time.Duration
+	nextAuthAttempt time.Time
+	lastAuthErr     error
 }
 
 // New returns a client for the given base URL (e.g. https://ebecoconnect.com).
 // tenantID is sent as the ABP "Abp.TenantId" header (Ebeco accounts live in the
-// default tenant, id 1); pass 0 to omit it.
-func New(baseURL, email, password string, tenantID int) *Client {
+// default tenant, id 1); pass 0 to omit it. A nil logger falls back to the slog
+// default.
+func New(baseURL, email, password string, tenantID int, log *slog.Logger) *Client {
+	if log == nil {
+		log = slog.Default()
+	}
 	return &Client{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		email:    email,
-		password: password,
-		tenantID: tenantID,
-		http:     &http.Client{Timeout: 20 * time.Second},
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		email:       email,
+		password:    password,
+		tenantID:    tenantID,
+		http:        &http.Client{Timeout: 20 * time.Second},
+		log:         log,
+		authBackoff: authBackoffBase,
 	}
 }
 
@@ -120,9 +140,31 @@ func (c *Client) ensureToken(ctx context.Context) (string, error) {
 	if c.token != "" && time.Now().Before(c.tokenExpiry) {
 		return c.token, nil
 	}
+
+	now := time.Now()
+	if now.Before(c.nextAuthAttempt) {
+		// A recent authentication failed; serve the cached error fast instead of
+		// hammering the token endpoint on every API call.
+		return "", fmt.Errorf("authenticate: backing off until %s after prior failure: %w",
+			c.nextAuthAttempt.Format(time.RFC3339), c.lastAuthErr)
+	}
+
 	if err := c.authenticateLocked(ctx); err != nil {
+		c.lastAuthErr = err
+		c.nextAuthAttempt = now.Add(c.authBackoff)
+		c.log.Warn("ebeco authentication failed; backing off",
+			"err", err,
+			"backoff", c.authBackoff.String(),
+			"retry_after", c.nextAuthAttempt.Format(time.RFC3339))
+		c.authBackoff = min(c.authBackoff*2, authBackoffMax)
 		return "", err
 	}
+
+	// Success: clear the backoff and report (debug) the new validity window.
+	c.authBackoff = authBackoffBase
+	c.nextAuthAttempt = time.Time{}
+	c.lastAuthErr = nil
+	c.log.Debug("ebeco authenticated", "token_valid_until", c.tokenExpiry.Format(time.RFC3339))
 	return c.token, nil
 }
 
@@ -187,6 +229,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	if status == http.StatusUnauthorized {
 		// Token rejected — drop it, re-auth and retry exactly once.
+		c.log.Info("ebeco token rejected (401); re-authenticating", "method", method, "path", path)
 		c.mu.Lock()
 		c.token = ""
 		c.mu.Unlock()

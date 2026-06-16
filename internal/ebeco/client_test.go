@@ -1,7 +1,13 @@
 package ebeco
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -56,6 +62,37 @@ func TestUnwrapBareObject(t *testing.T) {
 	}
 	if dev.ID != 3 {
 		t.Fatalf("got %+v", dev)
+	}
+}
+
+// TestAuthBackoff verifies that after an authentication failure a second
+// immediate call is short-circuited by the backoff rather than hitting the
+// token endpoint again.
+func TestAuthBackoff(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"success":false,"error":{"message":"bad login"}}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "user@example.com", "secret", 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx := context.Background()
+
+	if err := c.Authenticate(ctx); err == nil {
+		t.Fatal("expected authentication to fail")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1", got)
+	}
+
+	// Within the backoff window the next attempt must not reach the server.
+	if err := c.Authenticate(ctx); err == nil {
+		t.Fatal("expected backoff error on immediate retry")
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("token endpoint calls after backoff = %d, want 1 (must not hammer)", got)
 	}
 }
 
