@@ -50,10 +50,22 @@ func main() {
 		runFn = listDevices
 	}
 	if err := runFn(opts); err != nil {
-		// Bootstrap logger: a configured logger may not exist yet on failure.
-		slog.New(slog.NewTextHandler(os.Stderr, nil)).Error("fatal", "err", err)
+		bootstrapLogger(opts).Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// bootstrapLogger builds a logger for failures that happen before (or instead
+// of) the fully configured logger — e.g. Keychain or config-load errors. It
+// honours -log so these are visible under the LaunchAgent, which runs with
+// -log oslog and discards stderr; with no override it falls back to stderr.
+func bootstrapLogger(opts options) *slog.Logger {
+	if opts.logOutput != "" {
+		if l, err := applog.New(opts.logOutput, slog.LevelInfo); err == nil {
+			return l
+		}
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, nil))
 }
 
 // loadCredentials overlays EBECO_EMAIL/EBECO_PASSWORD from the Keychain when
