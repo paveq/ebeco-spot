@@ -11,10 +11,19 @@
 	<key>Label</key>
 	<string>__LABEL__</string>
 
-	<!-- run.sh reads credentials from the Keychain, then execs the binary. -->
+	<!--
+	  Run the binary directly. -keychain makes it read the credentials from the
+	  Keychain itself (so the item's ACL can be bound to this binary, not to
+	  /usr/bin/security); -log oslog routes logs to the unified logging system.
+	-->
 	<key>ProgramArguments</key>
 	<array>
-		<string>__PREFIX__/run.sh</string>
+		<string>__PREFIX__/ebeco-spot</string>
+		<string>-config</string>
+		<string>__PREFIX__/config.toml</string>
+		<string>-keychain</string>
+		<string>-log</string>
+		<string>oslog</string>
 	</array>
 
 	<!-- Start at login and keep it alive; launchd restarts it if it exits. -->

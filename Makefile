@@ -12,7 +12,7 @@ CONFIG  ?= config.toml
 GOFLAGS ?=
 
 # macOS LaunchAgent install layout (see `make install`). Override PREFIX to
-# install elsewhere; the binary, run.sh and config.toml all live there together.
+# install elsewhere; the binary and config.toml live there together.
 LABEL   := com.github.paveq.ebeco-spot
 PREFIX  ?= $(HOME)/.local/share/ebeco-spot
 PLIST   := $(HOME)/Library/LaunchAgents/$(LABEL).plist
@@ -65,7 +65,6 @@ install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychai
 	@command -v launchctl >/dev/null || { echo "install target is macOS-only"; exit 1; }
 	@mkdir -p "$(PREFIX)" "$(dir $(PLIST))"
 	install -m 0755 $(BINARY) "$(PREFIX)/ebeco-spot"
-	install -m 0755 dist/run.sh "$(PREFIX)/run.sh"
 	@if [ ! -f "$(PREFIX)/config.toml" ]; then \
 		install -m 0644 $(CONFIG) "$(PREFIX)/config.toml"; \
 		echo "installed config to $(PREFIX)/config.toml — edit device_ids there"; \

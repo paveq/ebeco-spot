@@ -79,8 +79,10 @@ EBECO_EMAIL=you@example.com EBECO_PASSWORD=secret \
   ./bin/ebeco-spot -config config.toml
 ```
 
-Flags: `-config <path>` (or `EBECO_CONFIG` env, default `config.toml`) and
-`-debug` for verbose logging. Logs are structured (slog) on stderr.
+Flags: `-config <path>` (or `EBECO_CONFIG` env, default `config.toml`),
+`-debug` for verbose logging, `-log <stdout|oslog>` to override the configured
+log output, and `-keychain` (macOS) to read the credentials from the Keychain
+instead of the environment. By default logs are structured (slog) on stdout.
 
 ### With 1Password
 
@@ -110,43 +112,42 @@ the values only to the child process.
 
 On macOS the `Makefile` installs ebeco-spot as a per-user **LaunchAgent**: it
 starts at login, is restarted automatically if it crashes, and runs without
-`sudo`. Credentials are read from the **login Keychain** at launch, so they
-never live in the plist or any file.
+`sudo`. Credentials are read from the **login Keychain** by the binary itself
+(`-keychain`), so they never live in the plist or any file.
 
-**1. Store your credentials in the Keychain** (once). The `-w` flag with no
-value prompts for the secret, keeping it out of your shell history:
-
-```sh
-security add-generic-password -U -a "$USER" -s ebeco-spot-email    -T /usr/bin/security -w
-security add-generic-password -U -a "$USER" -s ebeco-spot-password -T /usr/bin/security -w
-```
-
-(Enter your Ebeco email at the first prompt, your password at the second.)
-
-`-T /usr/bin/security` puts the `security` tool on each item's trusted-app
-list, so the background agent can read it **without** popping an authorization
-dialog. If macOS still prompts on first launch (the codesign "partition list"
-can require it), click **Always Allow** once — or recreate the items with `-A`
-in place of `-T /usr/bin/security` to allow any of your processes to read them
-unprompted (acceptable for a per-user secret, same threat model as a
-`chmod 600` file).
-
-**2. Install and start the agent:**
+**1. Install and start the agent:**
 
 ```sh
 make install
 ```
 
-This builds the binary and copies it, `run.sh`, and your `config.toml` into
+This builds the binary and copies it and your `config.toml` into
 `~/.local/share/ebeco-spot/`, then writes and loads
 `~/Library/LaunchAgents/com.github.paveq.ebeco-spot.plist`. An existing
 installed `config.toml` is never overwritten — edit
 `~/.local/share/ebeco-spot/config.toml` and re-run `make install` to apply
-changes. Override the install location with `PREFIX=...` if you like.
+changes. Override the install location with `PREFIX=...` if you like. (The
+agent starts immediately but can't authenticate until step 2; it retries every
+~30 s, so order doesn't matter beyond the binary needing to exist first.)
 
-The **first** launch may pop a dialog asking whether `security` may read the
-Keychain item — click **Always Allow** so the background job can start
-unattended afterwards.
+**2. Store your credentials in the Keychain** (once). The `-w` flag with no
+value prompts for the secret, keeping it out of your shell history; `-T`
+authorizes **the installed binary** to read the item:
+
+```sh
+BIN=~/.local/share/ebeco-spot/ebeco-spot
+security add-generic-password -U -a "$USER" -s ebeco-spot-email    -T "$BIN" -w
+security add-generic-password -U -a "$USER" -s ebeco-spot-password -T "$BIN" -w
+```
+
+(Enter your Ebeco email at the first prompt, your password at the second.)
+
+Binding the ACL to the binary — rather than to `/usr/bin/security` — means only
+ebeco-spot can read the secret unprompted, not any process that can run the
+`security` tool. The trade-off: a Go binary is unsigned, so it's matched by its
+code hash, and **rebuilding it (a later `make install`) invalidates the match**
+— macOS will prompt once on the next read; click **Always Allow**. The same
+one-time prompt may appear on the very first read after install.
 
 **Manage it:**
 
