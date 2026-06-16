@@ -26,6 +26,14 @@
 		<string>oslog</string>
 	</array>
 
+	<!--
+	  launchd defaults an agent's working directory to "/" (read-only), so a
+	  relative state_file like "baseline.json" would fail to write. Anchor it to
+	  the (writable, user-owned) install dir.
+	-->
+	<key>WorkingDirectory</key>
+	<string>__PREFIX__</string>
+
 	<!-- Start at login and keep it alive; launchd restarts it if it exits. -->
 	<key>RunAtLoad</key>
 	<true/>
@@ -39,9 +47,9 @@
 	<string>Background</string>
 
 	<!--
-	  No StandardOutPath/StandardErrorPath on purpose: run.sh passes -log oslog,
-	  so the binary logs into the unified logging system (os_log), which the OS
-	  caps and rotates automatically. View it with:
+	  No StandardOutPath/StandardErrorPath on purpose: -log oslog makes the
+	  binary log into the unified logging system (os_log), which the OS caps and
+	  rotates automatically. View it with:
 	    log stream --predicate 'subsystem == "com.github.paveq.ebeco-spot"'   (live)
 	    log show   --predicate 'subsystem == "com.github.paveq.ebeco-spot"' --last 1h
 	-->
