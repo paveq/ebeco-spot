@@ -11,6 +11,14 @@ PKG     := ./cmd/ebeco-spot
 CONFIG  ?= config.toml
 GOFLAGS ?=
 
+# macOS LaunchAgent install layout (see `make install`). Override PREFIX to
+# install elsewhere; the binary, run.sh and config.toml all live there together.
+LABEL   := com.github.paveq.ebeco-spot
+PREFIX  ?= $(HOME)/.local/share/ebeco-spot
+PLIST   := $(HOME)/Library/LaunchAgents/$(LABEL).plist
+LOGFILE := $(HOME)/Library/Logs/ebeco-spot.log
+DOMAIN  := gui/$(shell id -u)
+
 # Build static, dependency-free binaries (no libc linkage).
 export CGO_ENABLED := 0
 
@@ -47,6 +55,42 @@ tidy: ## Tidy go.mod / go.sum
 .PHONY: check
 check: fmt vet test ## Format, vet and test
 
+.PHONY: install
+install: build ## Install & start the macOS LaunchAgent (per-user, reads Keychain)
+	@command -v launchctl >/dev/null || { echo "install target is macOS-only"; exit 1; }
+	@mkdir -p "$(PREFIX)" "$(dir $(PLIST))" "$(dir $(LOGFILE))"
+	install -m 0755 $(BINARY) "$(PREFIX)/ebeco-spot"
+	install -m 0755 dist/run.sh "$(PREFIX)/run.sh"
+	@if [ ! -f "$(PREFIX)/config.toml" ]; then \
+		install -m 0644 $(CONFIG) "$(PREFIX)/config.toml"; \
+		echo "installed config to $(PREFIX)/config.toml — edit device_ids there"; \
+	else \
+		echo "kept existing $(PREFIX)/config.toml"; \
+	fi
+	sed -e 's|__LABEL__|$(LABEL)|g' \
+	    -e 's|__PREFIX__|$(PREFIX)|g' \
+	    -e 's|__LOGFILE__|$(LOGFILE)|g' \
+	    dist/com.github.paveq.ebeco-spot.plist.in > "$(PLIST)"
+	@launchctl bootout $(DOMAIN) "$(PLIST)" 2>/dev/null || true
+	launchctl bootstrap $(DOMAIN) "$(PLIST)"
+	launchctl enable $(DOMAIN)/$(LABEL)
+	launchctl kickstart -k $(DOMAIN)/$(LABEL)
+	@echo "installed and started; logs: make logs"
+
+.PHONY: uninstall
+uninstall: ## Stop & remove the macOS LaunchAgent (leaves installed files and logs)
+	@launchctl bootout $(DOMAIN) "$(PLIST)" 2>/dev/null || true
+	rm -f "$(PLIST)"
+	@echo "uninstalled; files under $(PREFIX) and $(LOGFILE) left in place"
+
+.PHONY: status
+status: ## Show the LaunchAgent's state
+	@launchctl print $(DOMAIN)/$(LABEL) 2>/dev/null || echo "not loaded (run: make install)"
+
+.PHONY: logs
+logs: ## Tail the service log
+	@touch "$(LOGFILE)"; tail -f "$(LOGFILE)"
+
 .PHONY: clean
 clean: ## Remove build artifacts
 	rm -rf bin
@@ -54,4 +98,4 @@ clean: ## Remove build artifacts
 .PHONY: help
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
+		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'

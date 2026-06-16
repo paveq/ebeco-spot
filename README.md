@@ -106,7 +106,53 @@ op run --env-file=.env -- ./bin/ebeco-spot -config config.toml
 `op run` resolves the references (prompting for unlock as needed) and exports
 the values only to the child process.
 
-## Running as a service (systemd)
+## Running as a service (macOS, launchd)
+
+On macOS the `Makefile` installs ebeco-spot as a per-user **LaunchAgent**: it
+starts at login, is restarted automatically if it crashes, and runs without
+`sudo`. Credentials are read from the **login Keychain** at launch, so they
+never live in the plist or any file.
+
+**1. Store your credentials in the Keychain** (once). The `-w` flag with no
+value prompts for the secret, keeping it out of your shell history:
+
+```sh
+security add-generic-password -U -a "$USER" -s ebeco-spot-email    -w
+security add-generic-password -U -a "$USER" -s ebeco-spot-password -w
+```
+
+(Enter your Ebeco email at the first prompt, your password at the second.)
+
+**2. Install and start the agent:**
+
+```sh
+make install
+```
+
+This builds the binary and copies it, `run.sh`, and your `config.toml` into
+`~/.local/share/ebeco-spot/`, then writes and loads
+`~/Library/LaunchAgents/com.github.paveq.ebeco-spot.plist`. An existing
+installed `config.toml` is never overwritten — edit
+`~/.local/share/ebeco-spot/config.toml` and re-run `make install` to apply
+changes. Override the install location with `PREFIX=...` if you like.
+
+The **first** launch may pop a dialog asking whether `security` may read the
+Keychain item — click **Always Allow** so the background job can start
+unattended afterwards.
+
+**Manage it:**
+
+```sh
+make logs        # tail ~/Library/Logs/ebeco-spot.log
+make status      # launchctl print … (running state, last exit code, PID)
+make uninstall   # stop and remove the agent (leaves installed files + logs)
+```
+
+To raise log verbosity, add `-debug` to the `exec` line in
+`~/.local/share/ebeco-spot/run.sh` (or run `make run` in a terminal for a
+one-off).
+
+## Running as a service (Linux, systemd)
 
 `/etc/systemd/system/ebeco-spot.service`:
 
